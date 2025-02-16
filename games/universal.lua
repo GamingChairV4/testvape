@@ -2381,69 +2381,123 @@ run(function()
 		Function = function(callback)
 			if callback then
 				repeat
-					local interest, tool = getAttackData()
-					local attacked = {}
-					if interest then
-						local plrs = entitylib.AllPosition({
-							Range = SwingRange.Value,
-							Wallcheck = Targets.Walls.Enabled or nil,
-							Part = 'RootPart',
-							Players = Targets.Players.Enabled,
-							NPCs = Targets.NPCs.Enabled,
-							Limit = Max.Value
-						})
-	
-						if #plrs > 0 then
-							local selfpos = entitylib.character.RootPart.Position
-							local localfacing = entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
-	
-							for _, v in plrs do
-								local delta = (v.RootPart.Position - selfpos)
-								local angle = math.acos(localfacing:Dot((delta * Vector3.new(1, 0, 1)).Unit))
-								if angle > (math.rad(AngleSlider.Value) / 2) then continue end
-	
-								table.insert(attacked, {
-									Entity = v,
-									Check = delta.Magnitude > AttackRange.Value and BoxSwingColor or BoxAttackColor
-								})
-								targetinfo.Targets[v] = tick() + 1
-	
-								if AttackDelay < tick() then
-									AttackDelay = tick() + (1 / CPS.GetRandomValue())
-									tool:Activate()
-								end
-	
-								if Lunge.Enabled and tool.GripUp.X == 0 then break end
-								if delta.Magnitude > AttackRange.Value then continue end
-	
-								Overlay.FilterDescendantsInstances = {v.Character}
-								for _, part in workspace:GetPartBoundsInBox(v.RootPart.CFrame, Vector3.new(4, 4, 4), Overlay) do
-									firetouchinterest(interest.Parent, part, 1)
-									firetouchinterest(interest.Parent, part, 0)
-								end
-							end
-						end
-					end
-	
-					for i, v in Boxes do
-						v.Adornee = attacked[i] and attacked[i].Entity.RootPart or nil
-						if v.Adornee then
-							v.Color3 = Color3.fromHSV(attacked[i].Check.Hue, attacked[i].Check.Sat, attacked[i].Check.Value)
-							v.Transparency = 1 - attacked[i].Check.Opacity
-						end
-					end
-	
-					for i, v in Particles do
-						v.Position = attacked[i] and attacked[i].Entity.RootPart.Position or Vector3.new(9e9, 9e9, 9e9)
-						v.Parent = attacked[i] and gameCamera or nil
-					end
-	
-					if Face.Enabled and attacked[1] then
-						local vec = attacked[1].Entity.RootPart.Position * Vector3.new(1, 0, 1)
-						entitylib.character.RootPart.CFrame = CFrame.lookAt(entitylib.character.RootPart.Position, Vector3.new(vec.X, entitylib.character.RootPart.Position.Y + 0.01, vec.Z))
-					end
-	
-					task.wait()
+					local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local ToolRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ToolRemotes"):WaitForChild("OnSwordHit")
+local SWORD_NAME = "Wooden Sword"
+local ATTACK_RANGE = swingrange
+local lastAttackTime = 0
+local ATTACK_COOLDOWN = 0.1
+
+local Killaura = {Enabled = false}
+
+-- Function to get the humanoid root part of the player
+local function getHumanoidRootPart()
+    return Character and Character:FindFirstChild("HumanoidRootPart")
+end
+
+-- Function to get the closest player to attack
+local function getClosestPlayer()
+    local closestPlayer = nil
+    local closestDistance = ATTACK_RANGE
+    local rootPart = getHumanoidRootPart()
+    if not rootPart then return nil end
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local targetRoot = player.Character.HumanoidRootPart
+            local distance = (rootPart.Position - targetRoot.Position).Magnitude
+            if distance < closestDistance then
+                closestDistance = distance
+                closestPlayer = player
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Function to simulate sword movement (for visual effect)
+local function moveSword()
+    local sword = Character and Character:FindFirstChild(SWORD_NAME)
+    if sword and sword:IsA("Tool") then
+        local handle = sword:FindFirstChild("Handle")
+        if handle then
+            handle.Position = handle.Position + Vector3.new(math.random(-1,1), math.random(-1,1), math.random(-1,1))
+        end
+    end
+end
+
+-- Attack handling (fires server event)
+local function handleAttack()
+    local currentTime = tick()
+    if currentTime - lastAttackTime < ATTACK_COOLDOWN then return end
+
+    local targetPlayer = getClosestPlayer()
+    if targetPlayer and targetPlayer.Character and getHumanoidRootPart() then
+        local targetCharacter = targetPlayer.Character
+        local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+        if not targetRoot then return end
+        
+        local hitPosition = targetRoot.Position - getHumanoidRootPart().Position
+        
+        local args = {SWORD_NAME, hitPosition, targetCharacter, tick()}
+        ToolRemote:FireServer(unpack(args))
+        moveSword()
+        lastAttackTime = currentTime
+    end
+end
+
+-- Toggle Killaura functionality
+local function toggleKillaura()
+    Killaura.Enabled = not Killaura.Enabled
+end
+
+-- Function to activate Killaura
+local function activateKillaura()
+    if Killaura.Enabled then
+        -- Loop through nearest players to attack (killaura behavior)
+        local targetPlayer = getClosestPlayer()
+        if targetPlayer then
+            local targetCharacter = targetPlayer.Character
+            if targetCharacter then
+                -- Here you would trigger the sword attack on the nearest player, or trigger Killaura's strike.
+                local hitPosition = targetCharacter.HumanoidRootPart.Position - getHumanoidRootPart().Position
+                local args = {SWORD_NAME, hitPosition, targetCharacter, tick()}
+                ToolRemote:FireServer(unpack(args))
+            end
+        end
+    end
+end
+
+-- Main loop (runs every frame)
+RunService.RenderStepped:Connect(function()
+    if Killaura.Enabled then
+        -- Handle attacks for Killaura when enabled
+        activateKillaura()
+    else
+        -- Regular sword attack logic when Killaura is disabled
+        handleAttack()
+    end
+end)
+
+-- Gui Button Toggle for Killaura (you can link this to a button to toggle on/off)
+local GuiLibrary = {} -- Assuming GuiLibrary exists
+GuiLibrary.CreateOptionsButton = function(options)
+    if options.Name == "Killaura" then
+        options.Function(true) -- Calls the function to toggle on Killaura
+    end
+end
+
+GuiLibrary.CreateOptionsButton({
+    Name = "Killaura",
+    Function = function(callback)
+        toggleKillaura() -- Toggle Killaura on/off
+    end
+})
 				until not Killaura.Enabled
 			else
 				for _, v in Boxes do
@@ -2467,8 +2521,8 @@ run(function()
 	SwingRange = Killaura:CreateSlider({
 		Name = 'Swing range',
 		Min = 1,
-		Max = 30,
-		Default = 13,
+		Max = 60,
+		Default = 60,
 		Suffix = function(val)
 			return val == 1 and 'stud' or 'studs'
 		end
@@ -2476,8 +2530,8 @@ run(function()
 	AttackRange = Killaura:CreateSlider({
 		Name = 'Attack range',
 		Min = 1,
-		Max = 30,
-		Default = 13,
+		Max = 60,
+		Default = 60,
 		Suffix = function(val)
 			return val == 1 and 'stud' or 'studs'
 		end
@@ -5925,30 +5979,109 @@ run(function()
 		end,
 		Tooltip = 'Plays a specific animation of your choosing at a certain speed'
 	})
-	IDBox = AnimationPlayer:CreateTextBox({
-		Name = 'Animation',
-		Placeholder = 'anim (num only)',
-		Function = function(enter)
-			if enter and AnimationPlayer.Enabled then
-				AnimationPlayer:Toggle()
-				AnimationPlayer:Toggle()
+AnimationPlayer = vape.Categories.Utility:CreateModule({
+		Name = 'AnimationPlayer',
+		Function = function(callback)
+			if callback then
+-- Nuker
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local function onCharacterAdded(char)
+    Character = char
+end
+LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+
+local function getHumanoidRootPart()
+    return Character and Character:FindFirstChild("HumanoidRootPart")
+end
+
+local ToolRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ToolRemotes"):WaitForChild("OnSwordHit")
+local DamageBlockRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ToolRemotes"):WaitForChild("DamageBlock")
+local SWORD_NAME = "Wooden Sword"
+local ATTACK_RANGE = 10 -- Adjust range as needed
+local BED_RANGE = 60 -- Range to detect beds
+local lastAttackTime = 0
+local ATTACK_COOLDOWN = 0.4 -- Adjust cooldown to prevent excessive firing
+local lastBedAttackTime = 0
+local BED_ATTACK_COOLDOWN = 0.1 -- Cooldown for attacking beds
+
+local function getClosestPlayer()
+    local closestPlayer = nil
+    local closestDistance = ATTACK_RANGE
+    local rootPart = getHumanoidRootPart()
+    if not rootPart then return nil end
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local targetRoot = player.Character.HumanoidRootPart
+            local distance = (rootPart.Position - targetRoot.Position).Magnitude
+            
+            if distance < closestDistance then
+                closestDistance = distance
+                closestPlayer = player
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+local function getNearbyBed()
+    local rootPart = getHumanoidRootPart()
+    if not rootPart then return nil end
+    
+    for _, bed in pairs(Workspace:GetDescendants()) do
+        if bed:IsA("Part") and bed.Name:lower():find("bed") then -- Adjust this if bed naming convention is different
+            local distance = (rootPart.Position - bed.Position).Magnitude
+            if distance <= BED_RANGE then
+                return bed
+            end
+        end
+    end
+    return nil
+end
+
+RunService.RenderStepped:Connect(function()
+    local currentTime = tick()
+    
+    -- Attack closest player
+    if currentTime - lastAttackTime >= ATTACK_COOLDOWN then
+        local targetPlayer = getClosestPlayer()
+        if targetPlayer and targetPlayer.Character and getHumanoidRootPart() then
+            local targetCharacter = targetPlayer.Character
+            local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+            if targetRoot then
+                local hitPosition = targetRoot.Position - getHumanoidRootPart().Position
+                local args = { SWORD_NAME, hitPosition, targetCharacter, tick() }
+                ToolRemote:FireServer(unpack(args))
+                lastAttackTime = currentTime
+            end
+        end
+    end
+    
+    -- Attack nearby bed
+    if currentTime - lastBedAttackTime >= BED_ATTACK_COOLDOWN then
+        local bed = getNearbyBed()
+        if bed then
+            local args = { "Wooden Pickaxe", bed, tick() }
+            DamageBlockRemote:FireServer(unpack(args))
+            lastBedAttackTime = currentTime
+        end
+    end
+end)
+
+			else
+				if anim then
+					anim:Stop()
+				end
 			end
-		end
-	})
-	local prio = {'Action4'}
-	for _, v in Enum.AnimationPriority:GetEnumItems() do
-		if v.Name ~= 'Action4' then
-			table.insert(prio, v.Name)
-		end
-	end
-	Priority = AnimationPlayer:CreateDropdown({
-		Name = 'Priority',
-		List = prio,
-		Function = function(val)
-			if anim then
-				anim.Priority = Enum.AnimationPriority[val]
-			end
-		end
+		end,
+		Tooltip = 'Nuke'
 	})
 	Speed = AnimationPlayer:CreateSlider({
 		Name = 'Speed',
@@ -7883,120 +8016,4 @@ run(function()
 	
 end)
 
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 
-local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local ToolRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ToolRemotes"):WaitForChild("OnSwordHit")
-local SWORD_NAME = "Wooden Sword"
-local ATTACK_RANGE = 10
-local lastAttackTime = 0
-local ATTACK_COOLDOWN = 0.4
-
-local Killaura = {Enabled = false}
-
--- Function to get the humanoid root part of the player
-local function getHumanoidRootPart()
-    return Character and Character:FindFirstChild("HumanoidRootPart")
-end
-
--- Function to get the closest player to attack
-local function getClosestPlayer()
-    local closestPlayer = nil
-    local closestDistance = ATTACK_RANGE
-    local rootPart = getHumanoidRootPart()
-    if not rootPart then return nil end
-    
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local targetRoot = player.Character.HumanoidRootPart
-            local distance = (rootPart.Position - targetRoot.Position).Magnitude
-            if distance < closestDistance then
-                closestDistance = distance
-                closestPlayer = player
-            end
-        end
-    end
-    return closestPlayer
-end
-
--- Function to simulate sword movement (for visual effect)
-local function moveSword()
-    local sword = Character and Character:FindFirstChild(SWORD_NAME)
-    if sword and sword:IsA("Tool") then
-        local handle = sword:FindFirstChild("Handle")
-        if handle then
-            handle.Position = handle.Position + Vector3.new(math.random(-1,1), math.random(-1,1), math.random(-1,1))
-        end
-    end
-end
-
--- Attack handling (fires server event)
-local function handleAttack()
-    local currentTime = tick()
-    if currentTime - lastAttackTime < ATTACK_COOLDOWN then return end
-
-    local targetPlayer = getClosestPlayer()
-    if targetPlayer and targetPlayer.Character and getHumanoidRootPart() then
-        local targetCharacter = targetPlayer.Character
-        local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-        if not targetRoot then return end
-        
-        local hitPosition = targetRoot.Position - getHumanoidRootPart().Position
-        
-        local args = {SWORD_NAME, hitPosition, targetCharacter, tick()}
-        ToolRemote:FireServer(unpack(args))
-        moveSword()
-        lastAttackTime = currentTime
-    end
-end
-
--- Toggle Killaura functionality
-local function toggleKillaura()
-    Killaura.Enabled = not Killaura.Enabled
-end
-
--- Function to activate Killaura
-local function activateKillaura()
-    if Killaura.Enabled then
-        -- Loop through nearest players to attack (killaura behavior)
-        local targetPlayer = getClosestPlayer()
-        if targetPlayer then
-            local targetCharacter = targetPlayer.Character
-            if targetCharacter then
-                -- Here you would trigger the sword attack on the nearest player, or trigger Killaura's strike.
-                local hitPosition = targetCharacter.HumanoidRootPart.Position - getHumanoidRootPart().Position
-                local args = {SWORD_NAME, hitPosition, targetCharacter, tick()}
-                ToolRemote:FireServer(unpack(args))
-            end
-        end
-    end
-end
-
--- Main loop (runs every frame)
-RunService.RenderStepped:Connect(function()
-    if Killaura.Enabled then
-        -- Handle attacks for Killaura when enabled
-        activateKillaura()
-    else
-        -- Regular sword attack logic when Killaura is disabled
-        handleAttack()
-    end
-end)
-
--- Gui Button Toggle for Killaura (you can link this to a button to toggle on/off)
-local GuiLibrary = {} -- Assuming GuiLibrary exists
-GuiLibrary.CreateOptionsButton = function(options)
-    if options.Name == "Killaura" then
-        options.Function(true) -- Calls the function to toggle on Killaura
-    end
-end
-
-GuiLibrary.CreateOptionsButton({
-    Name = "Killaura",
-    Function = function(callback)
-        toggleKillaura() -- Toggle Killaura on/off
-    end
-})
