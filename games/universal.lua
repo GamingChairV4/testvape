@@ -7882,4 +7882,121 @@ run(function()
 	})
 	
 end)
-	
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local ToolRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ToolRemotes"):WaitForChild("OnSwordHit")
+local SWORD_NAME = "Wooden Sword"
+local ATTACK_RANGE = 10
+local lastAttackTime = 0
+local ATTACK_COOLDOWN = 0.4
+
+local Killaura = {Enabled = false}
+
+-- Function to get the humanoid root part of the player
+local function getHumanoidRootPart()
+    return Character and Character:FindFirstChild("HumanoidRootPart")
+end
+
+-- Function to get the closest player to attack
+local function getClosestPlayer()
+    local closestPlayer = nil
+    local closestDistance = ATTACK_RANGE
+    local rootPart = getHumanoidRootPart()
+    if not rootPart then return nil end
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local targetRoot = player.Character.HumanoidRootPart
+            local distance = (rootPart.Position - targetRoot.Position).Magnitude
+            if distance < closestDistance then
+                closestDistance = distance
+                closestPlayer = player
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Function to simulate sword movement (for visual effect)
+local function moveSword()
+    local sword = Character and Character:FindFirstChild(SWORD_NAME)
+    if sword and sword:IsA("Tool") then
+        local handle = sword:FindFirstChild("Handle")
+        if handle then
+            handle.Position = handle.Position + Vector3.new(math.random(-1,1), math.random(-1,1), math.random(-1,1))
+        end
+    end
+end
+
+-- Attack handling (fires server event)
+local function handleAttack()
+    local currentTime = tick()
+    if currentTime - lastAttackTime < ATTACK_COOLDOWN then return end
+
+    local targetPlayer = getClosestPlayer()
+    if targetPlayer and targetPlayer.Character and getHumanoidRootPart() then
+        local targetCharacter = targetPlayer.Character
+        local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+        if not targetRoot then return end
+        
+        local hitPosition = targetRoot.Position - getHumanoidRootPart().Position
+        
+        local args = {SWORD_NAME, hitPosition, targetCharacter, tick()}
+        ToolRemote:FireServer(unpack(args))
+        moveSword()
+        lastAttackTime = currentTime
+    end
+end
+
+-- Toggle Killaura functionality
+local function toggleKillaura()
+    Killaura.Enabled = not Killaura.Enabled
+end
+
+-- Function to activate Killaura
+local function activateKillaura()
+    if Killaura.Enabled then
+        -- Loop through nearest players to attack (killaura behavior)
+        local targetPlayer = getClosestPlayer()
+        if targetPlayer then
+            local targetCharacter = targetPlayer.Character
+            if targetCharacter then
+                -- Here you would trigger the sword attack on the nearest player, or trigger Killaura's strike.
+                local hitPosition = targetCharacter.HumanoidRootPart.Position - getHumanoidRootPart().Position
+                local args = {SWORD_NAME, hitPosition, targetCharacter, tick()}
+                ToolRemote:FireServer(unpack(args))
+            end
+        end
+    end
+end
+
+-- Main loop (runs every frame)
+RunService.RenderStepped:Connect(function()
+    if Killaura.Enabled then
+        -- Handle attacks for Killaura when enabled
+        activateKillaura()
+    else
+        -- Regular sword attack logic when Killaura is disabled
+        handleAttack()
+    end
+end)
+
+-- Gui Button Toggle for Killaura (you can link this to a button to toggle on/off)
+local GuiLibrary = {} -- Assuming GuiLibrary exists
+GuiLibrary.CreateOptionsButton = function(options)
+    if options.Name == "Killaura" then
+        options.Function(true) -- Calls the function to toggle on Killaura
+    end
+end
+
+GuiLibrary.CreateOptionsButton({
+    Name = "Killaura",
+    Function = function(callback)
+        toggleKillaura() -- Toggle Killaura on/off
+    end
+})
